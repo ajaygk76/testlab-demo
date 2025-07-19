@@ -77,6 +77,26 @@ ansible-playbook azure-users-playbook.yml
 ansible-playbook azure-2fa-users-cli-playbook.yml
 ```
 
+### Reset User's 2FA Authentication
+
+#### Using the Easy Script (Recommended):
+```bash
+# Dry run to check current status
+./reset-user-2fa.sh hemanth.kumar2@sony.com gisc-in
+
+# Actual 2FA reset
+./reset-user-2fa.sh hemanth.kumar2@sony.com gisc-in --force
+```
+
+#### Using Ansible Playbook Directly:
+```bash
+# Dry run
+ansible-playbook azure-reset-user-2fa-cli-playbook.yml
+
+# Actual reset
+ansible-playbook azure-reset-user-2fa-cli-playbook.yml -e "force_reset=true"
+```
+
 ### Run with Verbose Output
 
 ```bash
@@ -178,23 +198,29 @@ ansible-playbook azure-users-playbook.yml -vvv
 
 ```
 .
-├── azure-users-playbook.yml           # Main playbook (all users + 2FA filter)
-├── azure-2fa-users-cli-playbook.yml   # CLI-based 2FA users playbook
-├── requirements.yml                   # Collection requirements
-├── inventory.yml                     # Inventory configuration
-├── ansible.cfg                       # Ansible configuration
-├── setup.sh                          # Setup script
-└── README.md                         # This file
+├── azure-users-playbook.yml                    # Main playbook (all users + 2FA filter)
+├── azure-2fa-users-cli-playbook.yml            # CLI-based 2FA users playbook
+├── azure-reset-user-2fa-playbook.yml           # 2FA reset playbook (collection method)
+├── azure-reset-user-2fa-cli-playbook.yml       # 2FA reset playbook (CLI method)
+├── reset-user-2fa.sh                           # Easy-to-use 2FA reset script
+├── requirements.yml                            # Collection requirements
+├── inventory.yml                              # Inventory configuration
+├── ansible.cfg                                # Ansible configuration
+├── setup.sh                                   # Setup script
+└── README.md                                  # This file
 ```
 
 ## Additional Features
 
 The playbooks include:
 - **2FA Detection**: Filter users with Multi-Factor Authentication enabled
+- **2FA Reset**: Find users in specific groups and reset their 2FA authentication
 - **Multiple Methods**: Both Azure collection and CLI-based approaches
-- **Error handling**: For missing users and authentication issues
+- **Error handling**: For missing users, groups, and authentication issues
 - **Multiple output formats**: Console, markdown, and JSON reports
 - **Timestamped report files**: Each run creates dated reports
 - **Summary statistics**: Including 2FA adoption rate
 - **Configurable authentication**: Service principal and environment variables
 - **MFA Method Details**: Shows authentication methods for each user
+- **Dry Run Mode**: Safe preview of operations before execution
+- **Easy-to-use Script**: Simple command-line interface for 2FA reset operations

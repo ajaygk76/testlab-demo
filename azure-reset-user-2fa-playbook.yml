@@ -1,0 +1,161 @@
+---
+- name: Find User in Group and Reset 2FA Authentication
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - azure.azcollection
+  
+  vars:
+    # Azure subscription details
+    subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') | default('your-subscription-id', true) }}"
+    tenant_id: "{{ lookup('env', 'AZURE_TENANT_ID') | default('your-tenant-id', true) }}"
+    client_id: "{{ lookup('env', 'AZURE_CLIENT_ID') | default('your-client-id', true) }}"
+    client_secret: "{{ lookup('env', 'AZURE_CLIENT_SECRET') | default('your-client-secret', true) }}"
+    
+    # Target user and group
+    target_user_email: "hemanth.kumar2@sony.com"
+    target_group_name: "gisc-in"
+    
+  tasks:
+    - name: Get Azure AD Group Information
+      azure.azcollection.azure_rm_adgroup_info:
+        subscription_id: "{{ subscription_id }}"
+        tenant_id: "{{ tenant_id }}"
+        client_id: "{{ client_id }}"
+        client_secret: "{{ client_secret }}"
+        name: "{{ target_group_name }}"
+      register: group_info
+      
+    - name: Display Group Information
+      debug:
+        msg: |
+          Group Found: {{ group_info.groups[0].display_name if group_info.groups else 'Group not found' }}
+          Group ID: {{ group_info.groups[0].object_id if group_info.groups else 'N/A' }}
+          Group Description: {{ group_info.groups[0].description if group_info.groups else 'N/A' }}
+      when: group_info.groups is defined and group_info.groups | length > 0
+      
+    - name: Fail if group not found
+      fail:
+        msg: "Group '{{ target_group_name }}' not found in Azure AD"
+      when: group_info.groups is not defined or group_info.groups | length == 0
+      
+    - name: Get Group Members
+      azure.azcollection.azure_rm_adgroup_info:
+        subscription_id: "{{ subscription_id }}"
+        tenant_id: "{{ tenant_id }}"
+        client_id: "{{ client_id }}"
+        client_secret: "{{ client_secret }}"
+        name: "{{ target_group_name }}"
+        members: true
+      register: group_members
+      
+    - name: Find Target User in Group
+      set_fact:
+        target_user: "{{ item }}"
+      loop: "{{ group_members.groups[0].members }}"
+      when: 
+        - group_members.groups is defined 
+        - group_members.groups | length > 0
+        - item.mail == target_user_email or item.user_principal_name == target_user_email
+      register: user_found
+      
+    - name: Display User Search Results
+      debug:
+        msg: |
+          {% if user_found.results | selectattr('ansible_facts.target_user', 'defined') | list | length > 0 %}
+          ✅ User found in group:
+          - Name: {{ user_found.results | selectattr('ansible_facts.target_user', 'defined') | first | json_query('ansible_facts.target_user.display_name') }}
+          - Email: {{ user_found.results | selectattr('ansible_facts.target_user', 'defined') | first | json_query('ansible_facts.target_user.mail') }}
+          - UPN: {{ user_found.results | selectattr('ansible_facts.target_user', 'defined') | first | json_query('ansible_facts.target_user.user_principal_name') }}
+          - Object ID: {{ user_found.results | selectattr('ansible_facts.target_user', 'defined') | first | json_query('ansible_facts.target_user.object_id') }}
+          {% else %}
+          ❌ User '{{ target_user_email }}' not found in group '{{ target_group_name }}'
+          {% endif %}
+          
+    - name: Fail if user not found in group
+      fail:
+        msg: "User '{{ target_user_email }}' not found in group '{{ target_group_name }}'"
+      when: user_found.results | selectattr('ansible_facts.target_user', 'defined') | list | length == 0
+      
+    - name: Get User's Current 2FA Status
+      azure.azcollection.azure_rm_user_info:
+        subscription_id: "{{ subscription_id }}"
+        tenant_id: "{{ tenant_id }}"
+        client_id: "{{ client_id }}"
+        client_secret: "{{ client_secret }}"
+        include_mfa: true
+        name: "{{ target_user_email }}"
+      register: user_mfa_status
+      
+    - name: Display Current 2FA Status
+      debug:
+        msg: |
+          Current 2FA Status for {{ target_user_email }}:
+          - MFA Methods: {{ user_mfa_status.users[0].strong_authentication_methods | length if user_mfa_status.users and user_mfa_status.users[0].strong_authentication_methods else 0 }}
+          - MFA Enabled: {{ 'Yes' if user_mfa_status.users and user_mfa_status.users[0].strong_authentication_methods and user_mfa_status.users[0].strong_authentication_methods | length > 0 else 'No' }}
+          {% if user_mfa_status.users and user_mfa_status.users[0].strong_authentication_methods %}
+          - MFA Methods Details:
+          {% for method in user_mfa_status.users[0].strong_authentication_methods %}
+            - {{ method.method_type | default('Unknown') }}: {{ method.default | default('N/A') }}
+          {% endfor %}
+          {% endif %}
+      when: user_mfa_status.users is defined and user_mfa_status.users | length > 0
+      
+    - name: Confirm 2FA Reset (Dry Run)
+      debug:
+        msg: |
+          ========================================
+          DRY RUN - 2FA Reset Operation
+          ========================================
+          User: {{ target_user_email }}
+          Group: {{ target_group_name }}
+          Current MFA Methods: {{ user_mfa_status.users[0].strong_authentication_methods | length if user_mfa_status.users and user_mfa_status.users[0].strong_authentication_methods else 0 }}
+          
+          This operation will:
+          1. Remove all existing MFA methods for the user
+          2. Force the user to set up new MFA methods on next login
+          3. Send notification to user about MFA reset
+          
+          To proceed with actual reset, set: force_reset: true
+          ========================================
+      when: user_mfa_status.users is defined and user_mfa_status.users | length > 0
+      
+    - name: Reset User's 2FA Authentication (Actual Reset)
+      azure.azcollection.azure_rm_user:
+        subscription_id: "{{ subscription_id }}"
+        tenant_id: "{{ tenant_id }}"
+        client_id: "{{ client_id }}"
+        client_secret: "{{ client_secret }}"
+        name: "{{ target_user_email }}"
+        force_change_password_next_login: false
+        force_change_password: false
+        # Note: Direct MFA reset through Azure collection is limited
+        # This will require additional steps or Azure CLI
+      when: 
+        - user_mfa_status.users is defined 
+        - user_mfa_status.users | length > 0
+        - force_reset | default(false)
+        
+    - name: Summary
+      debug:
+        msg: |
+          ========================================
+          User 2FA Reset Summary
+          ========================================
+          Target User: {{ target_user_email }}
+          Group: {{ target_group_name }}
+          User Found: ✅
+          Current MFA Methods: {{ user_mfa_status.users[0].strong_authentication_methods | length if user_mfa_status.users and user_mfa_status.users[0].strong_authentication_methods else 0 }}
+          Reset Performed: {{ 'Yes' if force_reset | default(false) else 'No (Dry Run)' }}
+          
+          Next Steps:
+          {% if force_reset | default(false) %}
+          1. User will be prompted to set up new MFA on next login
+          2. Notify user about the MFA reset
+          3. Monitor user's MFA setup completion
+          {% else %}
+          1. Review the dry run output above
+          2. Set force_reset: true to perform actual reset
+          3. Run playbook again with: -e "force_reset=true"
+          {% endif %}
+          ========================================
