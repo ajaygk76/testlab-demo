@@ -1,0 +1,77 @@
+---
+- name: Get Azure Users List
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - azure.azcollection
+  
+  vars:
+    # Azure subscription details
+    subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') | default('your-subscription-id', true) }}"
+    tenant_id: "{{ lookup('env', 'AZURE_TENANT_ID') | default('your-tenant-id', true) }}"
+    client_id: "{{ lookup('env', 'AZURE_CLIENT_ID') | default('your-client-id', true) }}"
+    client_secret: "{{ lookup('env', 'AZURE_CLIENT_SECRET') | default('your-client-secret', true) }}"
+  
+  tasks:
+    - name: Get Azure AD Users
+      azure.azcollection.azure_rm_user_info:
+        subscription_id: "{{ subscription_id }}"
+        tenant_id: "{{ tenant_id }}"
+        client_id: "{{ client_id }}"
+        client_secret: "{{ client_secret }}"
+      register: azure_users
+      
+    - name: Display Users Information
+      debug:
+        msg: |
+          Found {{ azure_users.users | length }} users in Azure AD:
+          
+          {% for user in azure_users.users %}
+          User: {{ user.display_name }}
+          Email: {{ user.mail | default('N/A') }}
+          UPN: {{ user.user_principal_name }}
+          Object ID: {{ user.object_id }}
+          Account Enabled: {{ user.account_enabled }}
+          {% if not loop.last %}
+          ---
+          {% endif %}
+          {% endfor %}
+      
+    - name: Save Users to File
+      copy:
+        content: |
+          # Azure AD Users Report
+          Generated on: {{ ansible_date_time.iso8601 }}
+          Total Users: {{ azure_users.users | length }}
+          
+          {% for user in azure_users.users %}
+          ## User {{ loop.index }}
+          - Display Name: {{ user.display_name }}
+          - Email: {{ user.mail | default('N/A') }}
+          - User Principal Name: {{ user.user_principal_name }}
+          - Object ID: {{ user.object_id }}
+          - Account Enabled: {{ user.account_enabled }}
+          - User Type: {{ user.user_type | default('N/A') }}
+          - Creation Date: {{ user.created_date | default('N/A') }}
+          
+          {% endfor %}
+        dest: "./azure_users_report_{{ ansible_date_time.date }}.md"
+      when: azure_users.users is defined
+      
+    - name: Create JSON Output
+      copy:
+        content: "{{ azure_users | to_nice_json }}"
+        dest: "./azure_users_{{ ansible_date_time.date }}.json"
+      when: azure_users.users is defined
+      
+    - name: Summary
+      debug:
+        msg: |
+          ========================================
+          Azure Users Report Summary
+          ========================================
+          Total Users Found: {{ azure_users.users | length }}
+          Report Files Created:
+          - azure_users_report_{{ ansible_date_time.date }}.md
+          - azure_users_{{ ansible_date_time.date }}.json
+          ========================================
