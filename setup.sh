@@ -45,7 +45,7 @@ else
     exit 1
 fi
 
-# Check if Azure CLI is installed (optional)
+# Check if Azure CLI is installed
 if command -v az &> /dev/null; then
     echo "✅ Azure CLI is installed: $(az version --output table | head -n2 | tail -n1)"
     echo ""
@@ -53,8 +53,9 @@ if command -v az &> /dev/null; then
     echo "   az login"
     echo "   az ad sp create-for-rbac --name 'ansible-azure-users' --role 'Directory.Read.All'"
 else
-    echo "⚠️  Azure CLI is not installed (optional but recommended)"
+    echo "⚠️  Azure CLI is not installed (required for 2FA CLI playbook)"
     echo "   Install from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
+    echo "   Or run: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash"
 fi
 
 echo ""

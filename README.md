@@ -1,6 +1,6 @@
 # Azure Users Ansible Playbook
 
-This Ansible playbook retrieves the list of users from Microsoft Azure Active Directory and generates detailed reports.
+This Ansible playbook retrieves the list of users from Microsoft Azure Active Directory and generates detailed reports. It includes specific functionality to filter and report on users with 2FA (Multi-Factor Authentication) enabled.
 
 ## Prerequisites
 
@@ -59,10 +59,22 @@ Alternatively, you can modify the playbook variables directly in `azure-users-pl
 
 ## Usage
 
-### Run the Playbook
+### Get All Users
 
 ```bash
 ansible-playbook azure-users-playbook.yml
+```
+
+### Get Only 2FA Enabled Users (Collection Method)
+
+```bash
+ansible-playbook azure-users-playbook.yml
+```
+
+### Get Only 2FA Enabled Users (CLI Method - More Accurate)
+
+```bash
+ansible-playbook azure-2fa-users-cli-playbook.yml
 ```
 
 ### Run with Verbose Output
@@ -83,15 +95,22 @@ ansible-playbook azure-users-playbook.yml \
 
 ## Output
 
-The playbook generates:
+The playbooks generate:
 
+### For All Users:
 1. **Console Output**: Displays user information in the terminal
 2. **Markdown Report**: `azure_users_report_YYYY-MM-DD.md` - Human-readable report
 3. **JSON File**: `azure_users_YYYY-MM-DD.json` - Machine-readable data
 
+### For 2FA Enabled Users Only:
+1. **Console Output**: Displays only users with 2FA enabled
+2. **Markdown Report**: `azure_2fa_users_report_YYYY-MM-DD.md` - 2FA users report
+3. **JSON File**: `azure_2fa_users_YYYY-MM-DD.json` - 2FA users data
+4. **CLI Method Reports**: `azure_2fa_users_cli_report_YYYY-MM-DD.md` and `azure_2fa_users_cli_YYYY-MM-DD.json`
+
 ## Sample Output
 
-### Console Output
+### Console Output (All Users)
 ```
 Found 25 users in Azure AD:
 
@@ -100,6 +119,19 @@ Email: john.doe@company.com
 UPN: john.doe@company.com
 Object ID: 12345678-1234-1234-1234-123456789012
 Account Enabled: true
+---
+```
+
+### Console Output (2FA Enabled Users Only)
+```
+Found 15 users with 2FA enabled out of 25 total users:
+
+User: John Doe
+Email: john.doe@company.com
+UPN: john.doe@company.com
+Object ID: 12345678-1234-1234-1234-123456789012
+Account Enabled: true
+MFA Methods: 2
 ---
 ```
 
@@ -146,18 +178,23 @@ ansible-playbook azure-users-playbook.yml -vvv
 
 ```
 .
-├── azure-users-playbook.yml    # Main playbook
-├── requirements.yml            # Collection requirements
-├── inventory.yml              # Inventory configuration
-├── ansible.cfg                # Ansible configuration
-└── README.md                  # This file
+├── azure-users-playbook.yml           # Main playbook (all users + 2FA filter)
+├── azure-2fa-users-cli-playbook.yml   # CLI-based 2FA users playbook
+├── requirements.yml                   # Collection requirements
+├── inventory.yml                     # Inventory configuration
+├── ansible.cfg                       # Ansible configuration
+├── setup.sh                          # Setup script
+└── README.md                         # This file
 ```
 
 ## Additional Features
 
-The playbook includes:
-- Error handling for missing users
-- Multiple output formats (console, markdown, JSON)
-- Timestamped report files
-- Summary statistics
-- Configurable authentication methods
+The playbooks include:
+- **2FA Detection**: Filter users with Multi-Factor Authentication enabled
+- **Multiple Methods**: Both Azure collection and CLI-based approaches
+- **Error handling**: For missing users and authentication issues
+- **Multiple output formats**: Console, markdown, and JSON reports
+- **Timestamped report files**: Each run creates dated reports
+- **Summary statistics**: Including 2FA adoption rate
+- **Configurable authentication**: Service principal and environment variables
+- **MFA Method Details**: Shows authentication methods for each user

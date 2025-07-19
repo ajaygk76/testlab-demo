@@ -1,0 +1,127 @@
+---
+- name: Get Azure Users with 2FA Enabled using Azure CLI
+  hosts: localhost
+  gather_facts: false
+  
+  vars:
+    # Azure subscription details
+    subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') | default('your-subscription-id', true) }}"
+    tenant_id: "{{ lookup('env', 'AZURE_TENANT_ID') | default('your-tenant-id', true) }}"
+    client_id: "{{ lookup('env', 'AZURE_CLIENT_ID') | default('your-client-id', true) }}"
+    client_secret: "{{ lookup('env', 'AZURE_CLIENT_SECRET') | default('your-client-secret', true) }}"
+  
+  tasks:
+    - name: Check if Azure CLI is installed
+      command: az --version
+      register: azure_cli_check
+      failed_when: false
+      changed_when: false
+      
+    - name: Fail if Azure CLI is not installed
+      fail:
+        msg: "Azure CLI is required for this playbook. Please install it from https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
+      when: azure_cli_check.rc != 0
+      
+    - name: Login to Azure using service principal
+      command: >
+        az login --service-principal
+        --username {{ client_id }}
+        --password {{ client_secret }}
+        --tenant {{ tenant_id }}
+      register: azure_login
+      failed_when: false
+      
+    - name: Set Azure subscription
+      command: az account set --subscription {{ subscription_id }}
+      when: azure_login.rc == 0
+      
+    - name: Get all Azure AD users
+      command: az ad user list --output json
+      register: all_users_json
+      when: azure_login.rc == 0
+      
+    - name: Parse users JSON
+      set_fact:
+        all_users: "{{ all_users_json.stdout | from_json }}"
+      when: all_users_json.rc == 0
+      
+    - name: Get MFA status for each user
+      command: >
+        az ad user show
+        --id "{{ item.userPrincipalName }}"
+        --query "strongAuthenticationRequirements.state"
+        --output tsv
+      register: mfa_status
+      loop: "{{ all_users }}"
+      when: all_users is defined
+      
+    - name: Create list of users with MFA enabled
+      set_fact:
+        mfa_enabled_users: "{{ mfa_enabled_users | default([]) + [item.0] }}"
+      loop: "{{ all_users | zip(mfa_status.results) }}"
+      when: 
+        - item.1.rc == 0
+        - item.1.stdout is defined
+        - item.1.stdout.strip() in ['Enabled', 'Enforced']
+      loop_control:
+        label: "{{ item.0.displayName }}"
+        
+    - name: Display 2FA Enabled Users Information
+      debug:
+        msg: |
+          Found {{ mfa_enabled_users | length }} users with 2FA enabled out of {{ all_users | length }} total users:
+          
+          {% for user in mfa_enabled_users %}
+          User: {{ user.displayName }}
+          Email: {{ user.mail | default('N/A') }}
+          UPN: {{ user.userPrincipalName }}
+          Object ID: {{ user.objectId }}
+          Account Enabled: {{ user.accountEnabled }}
+          {% if not loop.last %}
+          ---
+          {% endif %}
+          {% endfor %}
+      when: mfa_enabled_users is defined
+      
+    - name: Save 2FA Enabled Users to File
+      copy:
+        content: |
+          # Azure AD Users with 2FA Enabled Report (CLI Method)
+          Generated on: {{ ansible_date_time.iso8601 }}
+          Total Users: {{ all_users | length }}
+          Users with 2FA Enabled: {{ mfa_enabled_users | length }}
+          
+          {% for user in mfa_enabled_users %}
+          ## User {{ loop.index }}
+          - Display Name: {{ user.displayName }}
+          - Email: {{ user.mail | default('N/A') }}
+          - User Principal Name: {{ user.userPrincipalName }}
+          - Object ID: {{ user.objectId }}
+          - Account Enabled: {{ user.accountEnabled }}
+          - User Type: {{ user.userType | default('N/A') }}
+          - Creation Date: {{ user.createdDateTime | default('N/A') }}
+          
+          {% endfor %}
+        dest: "./azure_2fa_users_cli_report_{{ ansible_date_time.date }}.md"
+      when: mfa_enabled_users is defined
+      
+    - name: Create JSON Output for 2FA Users
+      copy:
+        content: "{{ mfa_enabled_users | to_nice_json }}"
+        dest: "./azure_2fa_users_cli_{{ ansible_date_time.date }}.json"
+      when: mfa_enabled_users is defined
+      
+    - name: Summary
+      debug:
+        msg: |
+          ========================================
+          Azure 2FA Users Report Summary (CLI)
+          ========================================
+          Total Users in Azure AD: {{ all_users | length }}
+          Users with 2FA Enabled: {{ mfa_enabled_users | length }}
+          2FA Adoption Rate: {{ ((mfa_enabled_users | length / all_users | length) * 100) | round(2) }}%
+          Report Files Created:
+          - azure_2fa_users_cli_report_{{ ansible_date_time.date }}.md
+          - azure_2fa_users_cli_{{ ansible_date_time.date }}.json
+          ========================================
+      when: mfa_enabled_users is defined

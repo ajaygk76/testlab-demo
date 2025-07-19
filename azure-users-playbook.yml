@@ -1,5 +1,5 @@
 ---
-- name: Get Azure Users List
+- name: Get Azure Users with 2FA Enabled
   hosts: localhost
   gather_facts: false
   collections:
@@ -21,30 +21,45 @@
         client_secret: "{{ client_secret }}"
       register: azure_users
       
-    - name: Display Users Information
+    - name: Get MFA Status for Users
+      azure.azcollection.azure_rm_user_info:
+        subscription_id: "{{ subscription_id }}"
+        tenant_id: "{{ tenant_id }}"
+        client_id: "{{ client_id }}"
+        client_secret: "{{ client_secret }}"
+        include_mfa: true
+      register: azure_users_with_mfa
+      
+    - name: Filter Users with 2FA Enabled
+      set_fact:
+        mfa_enabled_users: "{{ azure_users_with_mfa.users | selectattr('strong_authentication_methods', 'defined') | selectattr('strong_authentication_methods', 'length', '>', 0) | list }}"
+      
+    - name: Display 2FA Enabled Users Information
       debug:
         msg: |
-          Found {{ azure_users.users | length }} users in Azure AD:
+          Found {{ mfa_enabled_users | length }} users with 2FA enabled out of {{ azure_users.users | length }} total users:
           
-          {% for user in azure_users.users %}
+          {% for user in mfa_enabled_users %}
           User: {{ user.display_name }}
           Email: {{ user.mail | default('N/A') }}
           UPN: {{ user.user_principal_name }}
           Object ID: {{ user.object_id }}
           Account Enabled: {{ user.account_enabled }}
+          MFA Methods: {{ user.strong_authentication_methods | length }}
           {% if not loop.last %}
           ---
           {% endif %}
           {% endfor %}
       
-    - name: Save Users to File
+    - name: Save 2FA Enabled Users to File
       copy:
         content: |
-          # Azure AD Users Report
+          # Azure AD Users with 2FA Enabled Report
           Generated on: {{ ansible_date_time.iso8601 }}
           Total Users: {{ azure_users.users | length }}
+          Users with 2FA Enabled: {{ mfa_enabled_users | length }}
           
-          {% for user in azure_users.users %}
+          {% for user in mfa_enabled_users %}
           ## User {{ loop.index }}
           - Display Name: {{ user.display_name }}
           - Email: {{ user.mail | default('N/A') }}
@@ -53,25 +68,34 @@
           - Account Enabled: {{ user.account_enabled }}
           - User Type: {{ user.user_type | default('N/A') }}
           - Creation Date: {{ user.created_date | default('N/A') }}
+          - MFA Methods Count: {{ user.strong_authentication_methods | length }}
+          {% if user.strong_authentication_methods is defined and user.strong_authentication_methods | length > 0 %}
+          - MFA Methods:
+          {% for method in user.strong_authentication_methods %}
+            - {{ method.method_type | default('Unknown') }}: {{ method.default | default('N/A') }}
+          {% endfor %}
+          {% endif %}
           
           {% endfor %}
-        dest: "./azure_users_report_{{ ansible_date_time.date }}.md"
-      when: azure_users.users is defined
+        dest: "./azure_2fa_users_report_{{ ansible_date_time.date }}.md"
+      when: mfa_enabled_users is defined
       
-    - name: Create JSON Output
+    - name: Create JSON Output for 2FA Users
       copy:
-        content: "{{ azure_users | to_nice_json }}"
-        dest: "./azure_users_{{ ansible_date_time.date }}.json"
-      when: azure_users.users is defined
+        content: "{{ mfa_enabled_users | to_nice_json }}"
+        dest: "./azure_2fa_users_{{ ansible_date_time.date }}.json"
+      when: mfa_enabled_users is defined
       
     - name: Summary
       debug:
         msg: |
           ========================================
-          Azure Users Report Summary
+          Azure 2FA Users Report Summary
           ========================================
-          Total Users Found: {{ azure_users.users | length }}
+          Total Users in Azure AD: {{ azure_users.users | length }}
+          Users with 2FA Enabled: {{ mfa_enabled_users | length }}
+          2FA Adoption Rate: {{ ((mfa_enabled_users | length / azure_users.users | length) * 100) | round(2) }}%
           Report Files Created:
-          - azure_users_report_{{ ansible_date_time.date }}.md
-          - azure_users_{{ ansible_date_time.date }}.json
+          - azure_2fa_users_report_{{ ansible_date_time.date }}.md
+          - azure_2fa_users_{{ ansible_date_time.date }}.json
           ========================================
